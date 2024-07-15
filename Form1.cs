@@ -6,6 +6,8 @@ using System;
 using System.Drawing;
 using static ScottPlot.Color;
 using static OpenTK.Graphics.OpenGL.GL;
+using ScottPlot.WinForms;
+using static System.Windows.Forms.DataFormats;
 
 namespace ESPscope2
 {
@@ -35,7 +37,7 @@ namespace ESPscope2
 
     public partial class ESPScope : Form
     {
-        const uint max_buffer_size = 200 * 1000 * 1000;
+        const uint max_buffer_size = 200 * 1000; //200 * 1000 *1000
         uint cur_recv_size = 0;
         powerData buffer;
         HorizontalSpan guideSpan;
@@ -129,7 +131,6 @@ namespace ESPscope2
 
             formsPlotMain.Plot.Axes.Left.Label.ForeColor = sigMainCurr.Color;
             formsPlotMain.Plot.Axes.Right.Label.ForeColor = sigMainVolt.Color;
-
             // plot sample DateTime data
 
         }
@@ -159,17 +160,33 @@ namespace ESPscope2
         private void reselect_mainplot_datarange(int startIndex, int endIndex)
         {
             Console.WriteLine("start end£º" + startIndex + " " + endIndex);
+            Console.WriteLine("offset: " + startIndex / power_data_parama.sample_rate);
             int len = endIndex - startIndex;
             if (len <= 0)
             {
                 return;
             }
+
             mainDisData.sample_factor = (double)len / mainDisData.data_size;
-            for (int i = 0; i < mainDisData.data_size; i++)
+
+            uint buffer_index = 0;
+            int buffer_index_start = (int)(startIndex % max_buffer_size);
+            int i = 0;
+            while (i < mainDisData.data_size)
             {
-                int index = (int)(i * mainDisData.sample_factor) + startIndex;
+                int index = (int)((i * mainDisData.sample_factor) + buffer_index_start);
+                if (index >= max_buffer_size - 1)
+                    break;
                 mainDisData.data.current[i] = buffer.current[index];
                 mainDisData.data.voltage[i] = buffer.voltage[index];
+                i++;
+            }
+            while (i < mainDisData.data_size)
+            {
+                int index = (int)(((i * mainDisData.sample_factor) + buffer_index_start) % max_buffer_size);
+                mainDisData.data.current[i] = buffer.current[index];
+                mainDisData.data.voltage[i] = buffer.voltage[index];
+                i++;
             }
 
             sigMainCurr.Data.Period = mainDisData.sample_factor / power_data_parama.sample_rate;
@@ -248,7 +265,63 @@ namespace ESPscope2
             formsPlotMain.Interaction.Enable(); // enable panning again
             formsPlotMain.Refresh();
         }
-        
+        static string FormatCurrent(double current)
+        {
+            string unit;
+            double value;
+
+            if (Math.Abs(current) >= 1)
+            {
+                unit = " A";
+                value = current;
+            }
+            else if (Math.Abs(current) >= 1e-3)
+            {
+                unit = " mA";
+                value = current * 1e3;
+            }
+            else if (Math.Abs(current) >= 1e-6)
+            {
+                unit = " ¦ÌA";
+                value = current * 1e6;
+            }
+            else
+            {
+                unit = " nA";
+                value = current * 1e9;
+            }
+
+            return value.ToString("0.000") + unit;
+        }
+        static string FormatVoltage(double voltage)
+        {
+            string unit;
+            double value;
+
+            if (Math.Abs(voltage) >= 1)
+            {
+                unit = " V";
+                value = voltage;
+            }
+            else if (Math.Abs(voltage) >= 1e-3)
+            {
+                unit = " mV";
+                value = voltage * 1e3;
+            }
+            else if (Math.Abs(voltage) >= 1e-6)
+            {
+                unit = " ¦ÌV";
+                value = voltage * 1e6;
+            }
+            else
+            {
+                unit = " nV";
+                value = voltage * 1e9;
+            }
+
+            return value.ToString("0.000") + unit;
+        }
+
         private void FormsPlotMain_MouseMove(object? sender, MouseEventArgs e)
         {
             // this rectangle is the area around the mouse in coordinate units
@@ -274,11 +347,11 @@ namespace ESPscope2
                 {
                     vl.X = rect.HorizontalCenter;
                     int index = (int)((vl.X - sigMainCurr.Data.XOffset) / sigMainCurr.Data.Period);
-                    if(index < 0)
+                    if (index < 0)
                     {
                         index = 0;
                     }
-                    else if (index > mainDisData.data_size -1)
+                    else if (index > mainDisData.data_size - 1)
                     {
                         index = mainDisData.data_size - 1;
                     }
@@ -301,49 +374,97 @@ namespace ESPscope2
                         double x1 = horizontalSpan.X2 > horizontalSpan.X1 ? horizontalSpan.X1 : horizontalSpan.X2;
                         double x2 = horizontalSpan.X2 > horizontalSpan.X1 ? horizontalSpan.X2 : horizontalSpan.X1;
                         text.Location = new Coordinates(x2, y);
-                    
+
                         double dt = x2 - x1;
 
-                        int index1 = (int)(x1 * power_data_parama.sample_rate);
-                        int index2 = (int) (x2 * power_data_parama.sample_rate);
-                        if(index1 < 0)
-                        {
-                            index1 = 0;
-                        }
-                        else if(index2 > max_buffer_size - 1) {
-                            index2 = (int)max_buffer_size - 1;
-                        }
+                        int index1 = (int)((x1 * power_data_parama.sample_rate) % max_buffer_size);
+                        int index2 = (int)((x2 * power_data_parama.sample_rate) % max_buffer_size);
                         double avg_i = (buffer.current_sum[index2] - buffer.current_sum[index1]) / (index2 - index1);
                         double min_i = double.MaxValue, max_i = double.MinValue;
                         double min_v = double.MaxValue, max_v = double.MinValue;
-                        for (int i = index1;i< index2;i++)
+
+                        if(index1 < index2)
                         {
-                            if (buffer.current[i] < min_i)
+                            for (int i = index1; i < index2; i++)
                             {
-                                min_i = buffer.current[i];
+                                if (buffer.current[i] < min_i)
+                                {
+                                    min_i = buffer.current[i];
+                                }
+                                else if (buffer.current[i] > max_i)
+                                {
+                                    max_i = buffer.current[i];
+                                }
+                                if (buffer.voltage[i] < min_v)
+                                {
+                                    min_v = buffer.voltage[i];
+                                }
+                                else if (buffer.voltage[i] > max_v)
+                                {
+                                    max_v = buffer.voltage[i];
+                                }
                             }
-                            else if(buffer.current[i] > max_i)
-                            {
-                                max_i = buffer.current[i];
-                            }
-                            if (buffer.voltage[i] < min_v)
-                            {
-                                min_v = buffer.voltage[i];
-                            }
-                            else if (buffer.voltage[i] > max_v)
-                            {
-                                max_v = buffer.voltage[i];
-                            }
-
                         }
+                        else
+                        {
+                            for (int i = index1; i < max_buffer_size; i++)
+                            {
+                                if (buffer.current[i] < min_i)
+                                {
+                                    min_i = buffer.current[i];
+                                }
+                                else if (buffer.current[i] > max_i)
+                                {
+                                    max_i = buffer.current[i];
+                                }
+                                if (buffer.voltage[i] < min_v)
+                                {
+                                    min_v = buffer.voltage[i];
+                                }
+                                else if (buffer.voltage[i] > max_v)
+                                {
+                                    max_v = buffer.voltage[i];
+                                }
+                            }
+                            for(int i =0;i< index2; i++)
+                            {
+                                if (buffer.current[i] < min_i)
+                                {
+                                    min_i = buffer.current[i];
+                                }
+                                else if (buffer.current[i] > max_i)
+                                {
+                                    max_i = buffer.current[i];
+                                }
+                                if (buffer.voltage[i] < min_v)
+                                {
+                                    min_v = buffer.voltage[i];
+                                }
+                                else if (buffer.voltage[i] > max_v)
+                                {
+                                    max_v = buffer.voltage[i];
+                                }
+                            }
+                        }
+
                         double avg_v = (buffer.voltage_sum[index2] - buffer.voltage_sum[index1]) / (index2 - index1);
-                        text.LabelText = "¦¤T  " + dt.ToString("0.####") + " s\n" +
-                                         //"min " + min_i.ToString("0.####")  + "mA  " + min_v.ToString("0.####") + "V\n" +
-                                         "Max " + max_i.ToString("0.####")  + "mA  " + max_v.ToString("0.####") + "V\n" +
-                                          "Avg " + avg_i.ToString("0.####") + "mA  " + avg_v.ToString("0.####") + "V\n";
-
-
-
+                        text.LabelText = "¦¤T  " + dt.ToString("0.0000") + " s\n";
+                        string avg_str = "Avg: ";
+                        string min_str = "Min: ";
+                        string max_str = "Max: ";
+                        if (checkBoxCurrent.Checked)
+                        {
+                            avg_str += FormatCurrent(avg_i / 1000) + " ";
+                            min_str += FormatCurrent(min_i / 1000) + " ";
+                            max_str += FormatCurrent(max_i / 1000) + " ";
+                        }
+                        if (checkBoxVolt.Checked)
+                        {
+                            avg_str += FormatVoltage(avg_v);
+                            min_str += FormatVoltage(min_v);
+                            max_str += FormatVoltage(max_v);
+                        }
+                        text.LabelText += avg_str +"\n"+ min_str + "\n" + max_str;
                     }
                 }
                 // currently dragging something so update it
@@ -393,7 +514,7 @@ namespace ESPscope2
         {
             foreach (var horizontaltextSpan in horizontalTextSpans)
             {
-                if(givenSpan == horizontaltextSpan.span)
+                if (givenSpan == horizontaltextSpan.span)
                 {
                     return horizontaltextSpan.text;
                 }
@@ -417,21 +538,18 @@ namespace ESPscope2
 
         private void clear_data()
         {
-            Array.Clear(buffer.current, 0, buffer.current.Length);
-            Array.Clear(buffer.voltage, 0, buffer.voltage.Length);
-            Array.Clear(buffer.current_sum, 0, buffer.current_sum.Length);
-            cur_recv_size = 0;
-
-            mainDisData.sample_factor = 1;
-            mainDisData.data_size = 100000;
             Array.Clear(mainDisData.data.current, 0, mainDisData.data.current.Length);
             Array.Clear(mainDisData.data.voltage, 0, mainDisData.data.voltage.Length);
-
-            guideDisData.sample_factor = 1;
-            guideDisData.data_size = 100000;
             Array.Clear(guideDisData.data.current, 0, guideDisData.data.current.Length);
             Array.Clear(guideDisData.data.voltage, 0, guideDisData.data.voltage.Length);
-
+            mainDisData.sample_factor = 1;
+            guideDisData.sample_factor = 1;
+            cur_recv_size = 0;
+            clear_line_span();
+            guideSpan.X1 = 0;
+            guideSpan.X2 = guideDisData.data_size * guideDisData.sample_factor / power_data_parama.sample_rate;
+            sigGuideCurr.Data.XOffset = 0;
+            sigGuideVolt.Data.XOffset = 0;
         }
         private void buttonOpen_Click(object sender, EventArgs e)
         {
@@ -442,13 +560,14 @@ namespace ESPscope2
                 serialPort.Close();
                 buttonOpen.Text = "Open";
                 timerFlashPlot.Enabled = false;
-
+                is_auto_follow = false;
+                buttonFollow.Text = "Follow";
             }
             else
             {
                 if (comboBoxPorts.SelectedItem != null)
                 {
-                    //clear_data();
+                    clear_data();
                     serialPort.PortName = comboBoxPorts.SelectedItem.ToString();
                     serialPort.BaudRate = 115200;
                     serialPort.Open();
@@ -497,6 +616,7 @@ namespace ESPscope2
         {
             byte[] header_data = new byte[] { 0xaa, 0xaa, 0xaa, 0xaa };
             bool isEqual = data.Take(4).SequenceEqual(header_data);
+            uint buffer_addr = 0;
             if (isEqual == true)
             {
                 uint payload_size = BitConverter.ToUInt16(data, 4);
@@ -505,10 +625,20 @@ namespace ESPscope2
                 {
                     for (int i = 0; i < payload_size; i++)
                     {
-                        buffer.voltage[cur_recv_size + i] = BitConverter.ToSingle(data, 8 + i * 8);
-                        buffer.current[cur_recv_size + i] = BitConverter.ToSingle(data, 12 + i * 8) * 1000.0f;
-                        buffer.current_sum[cur_recv_size + i + 1] = buffer.current_sum[cur_recv_size + i] + buffer.current[cur_recv_size + i];
-                        buffer.voltage_sum[cur_recv_size + i + 1] = buffer.voltage_sum[cur_recv_size + i] + buffer.voltage[cur_recv_size + i];
+                        buffer_addr = (uint)(cur_recv_size + i) % max_buffer_size;
+                        buffer.voltage[buffer_addr] = BitConverter.ToSingle(data, 8 + i * 8);
+                        buffer.current[buffer_addr] = BitConverter.ToSingle(data, 12 + i * 8) * 1000.0f;
+                        if (buffer_addr < max_buffer_size - 1)
+                        {
+                            buffer.current_sum[buffer_addr + 1] = buffer.current_sum[buffer_addr] + buffer.current[buffer_addr];
+                            buffer.voltage_sum[buffer_addr + 1] = buffer.voltage_sum[buffer_addr] + buffer.voltage[buffer_addr];
+                        }
+                        else
+                        {
+                            buffer.current_sum[0] = buffer.current_sum[buffer_addr] + buffer.current[buffer_addr];
+                            buffer.voltage_sum[0] = buffer.voltage_sum[buffer_addr] + buffer.voltage[buffer_addr];
+                        }
+
                     }
                     cur_recv_size += payload_size;
                 }
@@ -524,13 +654,12 @@ namespace ESPscope2
             SerialPort sp = (SerialPort)sender;
             int bytesToRead = sp.BytesToRead;
 
-
             // Read data to buffer
             sp.Read(uart_buffer, uart_received_len, bytesToRead);
             uart_received_len = uart_received_len + bytesToRead;
             if (uart_received_len > 511)
             {
-                Console.WriteLine("SerialPort_DataReceived uart_received_len" + uart_received_len);
+                //Console.WriteLine("SerialPort_DataReceived uart_received_len" + uart_received_len);
                 // Printf data receiver
                 serial_data_deal(uart_buffer, uart_received_len);
                 uart_received_len = 0;
@@ -548,7 +677,7 @@ namespace ESPscope2
 
             double lim1 = guideSpan.X1 * guideDisData.sample_factor / power_data_parama.sample_rate;
             double lim2 = guideSpan.X2 * guideDisData.sample_factor / power_data_parama.sample_rate;
-
+            Console.WriteLine("recv: " + cur_recv_size);
             if (cur_recv_size < guideDisData.data_size)
             {
                 guideDisData.sample_factor = 1;
@@ -558,23 +687,63 @@ namespace ESPscope2
                     guideDisData.data.voltage[i] = buffer.voltage[i];
                 }
             }
-            else
+            else if (cur_recv_size < max_buffer_size)
             {
                 guideDisData.sample_factor = (double)cur_recv_size / guideDisData.data_size;
-                //Console.WriteLine("guideDisData.sample_factor " + guideDisData.sample_factor);
+
                 for (int i = 0; i < guideDisData.data_size; i++)
                 {
                     guideDisData.data.current[i] = buffer.current[(int)(i * guideDisData.sample_factor)];
                     guideDisData.data.voltage[i] = buffer.voltage[(int)(i * guideDisData.sample_factor)];
                 }
             }
+            else
+            {
+                guideDisData.sample_factor = (double)max_buffer_size / guideDisData.data_size;
+                //Console.WriteLine("guideDisData.sample_factor " + guideDisData.sample_factor);
+                uint buffer_index_start = 0;
+                uint buffer_index = 0;
+                buffer_index_start = cur_recv_size % max_buffer_size;
+                int i = 0;
+                while (i < guideDisData.data_size)
+                {
+                    buffer_index = buffer_index_start + (uint)(i * guideDisData.sample_factor);
+                    if (buffer_index >= max_buffer_size - 1)
+                        break;
+                    guideDisData.data.current[i] = buffer.current[buffer_index];
+                    guideDisData.data.voltage[i] = buffer.voltage[buffer_index];
+                    i++;
+                }
+                while (i < guideDisData.data_size)
+                {
+                    buffer_index = (uint)((i * guideDisData.sample_factor) + buffer_index_start) % max_buffer_size;
+                    guideDisData.data.current[i] = buffer.current[buffer_index];
+                    guideDisData.data.voltage[i] = buffer.voltage[buffer_index];
+                    i++;
+                }
+
+            }
+
             if (!is_auto_follow)
             {
-                //guideSpan.X1 = lim1 * power_data_parama.sample_rate / guideDisData.sample_factor;
-                //guideSpan.X2 = lim2 * power_data_parama.sample_rate / guideDisData.sample_factor;
+                double span_windows = guideSpan.X2 - guideSpan.X1;
+                if (cur_recv_size > max_buffer_size)
+                {
+                    if (guideSpan.X1 < (cur_recv_size - max_buffer_size) / power_data_parama.sample_rate)
+                    {
+                        guideSpan.X1 = (cur_recv_size - max_buffer_size) / power_data_parama.sample_rate;
+                    }
+                    double X2 = guideSpan.X1 + span_windows;
+                    guideSpan.X2 = (X2 > cur_recv_size / power_data_parama.sample_rate) ? cur_recv_size / power_data_parama.sample_rate : X2;
+                    int startIndex = (int)(guideSpan.X1 * power_data_parama.sample_rate);
+                    int endIndex = (int)(guideSpan.X2 * power_data_parama.sample_rate);
+                    reselect_mainplot_datarange(startIndex, endIndex);
+                }
+
             }
             else
             {
+
                 if (guideSpan.X2 < cur_recv_size / power_data_parama.sample_rate)
                 {
                     guideSpan.X2 = cur_recv_size / power_data_parama.sample_rate;
@@ -586,7 +755,13 @@ namespace ESPscope2
             }
             sigGuideCurr.Data.Period = guideDisData.sample_factor / power_data_parama.sample_rate;
             sigGuideVolt.Data.Period = guideDisData.sample_factor / power_data_parama.sample_rate;
+            if (cur_recv_size > max_buffer_size)
+            {
+                sigGuideCurr.Data.XOffset = (cur_recv_size - max_buffer_size) / power_data_parama.sample_rate;
+                sigGuideVolt.Data.XOffset = (cur_recv_size - max_buffer_size) / power_data_parama.sample_rate;
+            }
             formsPlotGuide.Plot.Axes.AutoScaleY();
+            formsPlotGuide.Plot.Axes.AutoScaleX();
             formsPlotGuide.Refresh();
 
         }
@@ -610,7 +785,6 @@ namespace ESPscope2
             {
                 is_auto_follow = false;
                 buttonFollow.Text = "Follow";
-                buttonFollow.Enabled = true;
             }
 
 
@@ -663,8 +837,7 @@ namespace ESPscope2
         {
 
         }
-
-        private void buttonClear_Click(object sender, EventArgs e)
+        private void clear_line_span()
         {
             foreach (VerticalLine line in mainverticalLines)
             {
@@ -680,6 +853,10 @@ namespace ESPscope2
 
             formsPlotMain.Refresh();
         }
+        private void buttonClear_Click(object sender, EventArgs e)
+        {
+            clear_line_span();
+        }
 
         private void button2_Click(object sender, EventArgs e)
         {
@@ -694,6 +871,22 @@ namespace ESPscope2
         private void pictureBox1_Click(object sender, EventArgs e)
         {
 
+        }
+
+        private void checkBox1_CheckedChanged(object sender, EventArgs e)
+        {
+            sigGuideCurr.IsVisible = checkBoxCurrent.Checked;
+            sigMainCurr.IsVisible = checkBoxCurrent.Checked;
+            formsPlotMain.Refresh();
+            formsPlotGuide.Refresh();
+        }
+
+        private void checkBoxVolt_CheckedChanged(object sender, EventArgs e)
+        {
+            sigGuideVolt.IsVisible = checkBoxVolt.Checked;
+            sigMainVolt.IsVisible = checkBoxVolt.Checked;
+            formsPlotMain.Refresh();
+            formsPlotGuide.Refresh();
         }
     }
 }

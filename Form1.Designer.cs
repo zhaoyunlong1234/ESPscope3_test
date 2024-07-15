@@ -34,6 +34,8 @@
             System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(ESPScope));
             button1 = new Button();
             panelControl = new Panel();
+            checkBoxVolt = new CheckBox();
+            checkBoxCurrent = new CheckBox();
             buttonClear = new Button();
             buttonAddSpan = new Button();
             buttonAddLine = new Button();
@@ -64,6 +66,8 @@
             // panelControl
             // 
             panelControl.BackColor = Color.White;
+            panelControl.Controls.Add(checkBoxVolt);
+            panelControl.Controls.Add(checkBoxCurrent);
             panelControl.Controls.Add(buttonClear);
             panelControl.Controls.Add(buttonAddSpan);
             panelControl.Controls.Add(buttonAddLine);
@@ -77,6 +81,34 @@
             panelControl.Name = "panelControl";
             panelControl.Size = new Size(138, 855);
             panelControl.TabIndex = 2;
+            // 
+            // checkBoxVolt
+            // 
+            checkBoxVolt.AutoSize = true;
+            checkBoxVolt.Checked = true;
+            checkBoxVolt.CheckState = CheckState.Checked;
+            checkBoxVolt.ForeColor = SystemColors.Control;
+            checkBoxVolt.Location = new Point(28, 349);
+            checkBoxVolt.Name = "checkBoxVolt";
+            checkBoxVolt.Size = new Size(88, 24);
+            checkBoxVolt.TabIndex = 9;
+            checkBoxVolt.Text = "Voltage";
+            checkBoxVolt.UseVisualStyleBackColor = true;
+            checkBoxVolt.CheckedChanged += checkBoxVolt_CheckedChanged;
+            // 
+            // checkBoxCurrent
+            // 
+            checkBoxCurrent.AutoSize = true;
+            checkBoxCurrent.Checked = true;
+            checkBoxCurrent.CheckState = CheckState.Checked;
+            checkBoxCurrent.ForeColor = SystemColors.Control;
+            checkBoxCurrent.Location = new Point(28, 319);
+            checkBoxCurrent.Name = "checkBoxCurrent";
+            checkBoxCurrent.Size = new Size(86, 24);
+            checkBoxCurrent.TabIndex = 8;
+            checkBoxCurrent.Text = "Current";
+            checkBoxCurrent.UseVisualStyleBackColor = true;
+            checkBoxCurrent.CheckedChanged += checkBox1_CheckedChanged;
             // 
             // buttonClear
             // 
@@ -237,5 +269,7 @@
         private Button buttonAddSpan;
         private ScottPlot.WinForms.FormsPlot formsPlotMain;
         private Button buttonClear;
+        private CheckBox checkBoxCurrent;
+        private CheckBox checkBoxVolt;
     }
 }
